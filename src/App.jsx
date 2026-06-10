@@ -560,51 +560,6 @@ export default function App() {
     }
   };
 
-  // Handler to export clean PDF with only preflight fixes
-  const handleExportCleanPDF = async () => {
-    if (!artworkFile) return;
-    setIsLoading(true);
-    try {
-      const safeFilename = artworkFile.name.replace(/\.[^/.]+$/, "") + '_Fixed';
-      
-      if (bleedEnabled) {
-        const bleedAmount = 9.0; // 0.125" = 9.0pt
-        const outputBytes = await stitchBugToPDF(
-          artworkFile,
-          null,
-          null,
-          bugPosition,
-          bugSize,
-          canvasScale,
-          [],
-          currentPage,
-          bleedAmount,
-          false, // bugEnabled = false
-          {},
-          {}
-        );
-        
-        const blob = new Blob([outputBytes], { type: 'application/pdf' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = `${safeFilename}.pdf`;
-        link.click();
-      } else {
-        const arrayBuffer = await artworkFile.arrayBuffer();
-        const finalBlob = new Blob([arrayBuffer], { type: 'application/pdf' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(finalBlob);
-        link.download = `${safeFilename}.pdf`;
-        link.click();
-      }
-    } catch (err) {
-      console.error('Error exporting cleaned PDF:', err);
-      alert('파일을 저장하는 중 오류가 발생했습니다.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   // 6. Quick Alignment Logic
   const handleQuickAlign = useCallback((alignment) => {
     if (!artworkCanvas || !bugSize) return;

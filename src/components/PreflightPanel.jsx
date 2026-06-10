@@ -3,7 +3,6 @@ import {
   AlertTriangle, 
   XCircle, 
   Loader2, 
-  FileCheck, 
   AlertCircle
 } from 'lucide-react';
 
@@ -12,9 +11,7 @@ export default function PreflightPanel({
   results,
   isScanning,
   onFix,
-  artworkType,
-  isExporting,
-  onExportUniversal // Consolidated export handler
+  artworkType
 }) {
 
   if (artworkType !== 'pdf') {

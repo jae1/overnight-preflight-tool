@@ -1,4 +1,4 @@
-import { Download, ShieldCheck, Check, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
+import { ShieldCheck, Check, AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
 
 export default function ControlPanel({
   colorMode,         // 'auto', 'black', 'white', 'custom'
@@ -20,9 +20,7 @@ export default function ControlPanel({
   onColorSelect,
   onScaleChange,
   onShowSafeLineToggle,
-  onMultiPageOptionsChange,
-  onExport,          // triggers PDF/Image build & download
-  isExporting        // boolean
+  onMultiPageOptionsChange
 }) {
 
   const getBugInchDimensions = () => {
