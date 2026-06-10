@@ -261,28 +261,6 @@ export default function ControlPanel({
           </div>
         </div>
       )}
-
-      {/* 6. Export and Stamping Action */}
-      <div className="sidebar-section" style={{ marginTop: 'auto' }}>
-        <button
-          className="btn btn-primary btn-action-block"
-          style={{ padding: '14px', fontSize: '15px' }}
-          onClick={onExport}
-          disabled={isExporting}
-        >
-          {isExporting ? (
-            <>
-              <div className="spinner" style={{ width: '16px', height: '16px', borderWidth: '2px' }} />
-              파일 생성 중...
-            </>
-          ) : (
-            <>
-              <Download size={18} />
-              {bugEnabled ? '최종 스탬프 파일 저장' : '미러 블리드 적용 파일 저장'}
-            </>
-          )}
-        </button>
-      </div>
     </div>
   );
 }

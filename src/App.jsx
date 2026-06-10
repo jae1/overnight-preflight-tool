@@ -540,10 +540,21 @@ export default function App() {
         const doc = await loadPDF(correctedFile);
         setPdfDoc(doc);
         setTotalPages(doc.numPages);
+
+        // Re-run preflight scan to update the UI status
+        setIsScanning(true);
+        try {
+          const results = await runPreflightChecks(correctedFile, doc);
+          setPreflightResults(results);
+        } catch (scanErr) {
+          console.error('Error re-scanning after fix:', scanErr);
+        } finally {
+          setIsScanning(false);
+        }
       }
     } catch (error) {
       console.error(`Error fixing preflight check ${checkKey}:`, error);
-      alert('오류를 해결하는 중 문제가 발생했습니다.');
+      alert(`오류를 해결하는 중 문제가 발생했습니다: ${error.message || '알 수 없는 오류'}`);
     } finally {
       setIsLoading(false);
     }
@@ -742,20 +753,23 @@ export default function App() {
     }
   };
 
-  // 7. Stamping and PDF Exporting
-  const handleExport = async () => {
+  // Universal Export Handler (Handles both Stamper and Preflight-only exports)
+  const handleUniversalExport = async () => {
     if (!artworkFile || !artworkCanvas) return;
     
     setIsExporting(true);
     
     try {
-      const safeFilename = artworkFile.name.replace(/\.[^/.]+$/, "") + '_Proof';
+      const safeFilename = artworkFile.name.replace(/\.[^/.]+$/, "") + (bugEnabled ? '_Proof' : '_Fixed');
       const bleedAmount = bleedEnabled ? 9.0 : 0; // 0.125" = 9.0pt
       
       if (artworkType === 'pdf') {
         // Resolve target pages to stamp
         let pagesToStitch = [];
-        if (multiPageOptions.applyTo === 'current') {
+        if (!bugEnabled) {
+          // If bug is disabled, we don't stitch anything, but we might still apply mirror bleed
+          pagesToStitch = [];
+        } else if (multiPageOptions.applyTo === 'current') {
           pagesToStitch = [currentPage];
         } else if (multiPageOptions.applyTo === 'all') {
           pagesToStitch = Array.from({ length: totalPages }, (_, i) => i + 1);
@@ -808,8 +822,8 @@ export default function App() {
         link.click();
       }
     } catch (error) {
-      console.error('Stitching & exporting error:', error);
-      alert('스탬프 파일을 생성하는 중 오류가 발생했습니다.');
+      console.error('Export error:', error);
+      alert('파일을 저장하는 중 오류가 발생했습니다.');
     } finally {
       setIsExporting(false);
     }
@@ -1035,7 +1049,6 @@ export default function App() {
                   onScaleChange={setBugScale}
                   onShowSafeLineToggle={() => setShowSafeLine(!showSafeLine)}
                   onMultiPageOptionsChange={setMultiPageOptions}
-                  onExport={handleExport}
                   isExporting={isExporting}
                 />
               ) : (
@@ -1044,10 +1057,43 @@ export default function App() {
                   isScanning={isScanning}
                   onFix={handlePreflightFix}
                   artworkType={artworkType}
-                  isExporting={isLoading || isScanning} // disable clean export button if loading/scanning
-                  onExportCleanPDF={handleExportCleanPDF}
+                  isExporting={isLoading || isScanning || isExporting}
                 />
               )}
+
+              {/* Universal Persistent Export Button at bottom of sidebar */}
+              <div style={{ 
+                padding: '0 24px 24px', 
+                marginTop: 'auto',
+                borderTop: '1px solid var(--border-color)',
+                paddingTop: '20px',
+                background: 'var(--bg-card)',
+                position: 'sticky',
+                bottom: 0,
+                zIndex: 10
+              }}>
+                <button
+                  className="btn btn-primary btn-action-block"
+                  style={{ padding: '14px', fontSize: '15px' }}
+                  onClick={handleUniversalExport}
+                  disabled={isLoading || isScanning || isExporting}
+                >
+                  {isExporting ? (
+                    <>
+                      <UploadCloud size={18} className="spinner" style={{ animation: 'spin 1s linear infinite' }} />
+                      파일 생성 중...
+                    </>
+                  ) : (
+                    <>
+                      <ClipboardCheck size={18} />
+                      최종 결과물 저장하기
+                    </>
+                  )}
+                </button>
+                <p style={{ fontSize: '10.5px', color: 'var(--text-secondary)', textAlign: 'center', marginTop: '8px' }}>
+                  * {bugEnabled ? '유니언버그와 ' : ''}프리플라이트 수정 사항이 모두 반영됩니다.
+                </p>
+              </div>
 
               {/* Collapsible Advanced Settings for Stamp File Change */}
               <div className="advanced-settings-wrapper">

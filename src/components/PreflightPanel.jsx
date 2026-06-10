@@ -14,7 +14,7 @@ export default function PreflightPanel({
   onFix,
   artworkType,
   isExporting,
-  onExportCleanPDF // allows downloading corrected PDF without adding union bug
+  onExportUniversal // Consolidated export handler
 }) {
 
   if (artworkType !== 'pdf') {
@@ -187,32 +187,6 @@ export default function PreflightPanel({
           })}
         </div>
       </div>
-
-      {/* 4. Export Cleaned Version without bug */}
-      <div className="sidebar-section" style={{ marginTop: 'auto', paddingTop: '10px' }}>
-        <button
-          className="btn btn-secondary btn-action-block"
-          style={{ padding: '12px', fontSize: '13px' }}
-          onClick={onExportCleanPDF}
-          disabled={isExporting}
-        >
-          {isExporting ? (
-            <>
-              <Loader2 size={14} className="spinner" style={{ animation: 'spin 1s linear infinite' }} />
-              수정 파일 생성 중...
-            </>
-          ) : (
-            <>
-              <FileCheck size={14} />
-              수정 완료된 깨끗한 PDF 저장
-            </>
-          )}
-        </button>
-        <p style={{ fontSize: '10.5px', color: 'var(--text-secondary)', textAlign: 'center', marginTop: '6px' }}>
-          * 유니언버그 스탬핑 없이, preflight 수정 사항만 반영된 PDF를 내보냅니다.
-        </p>
-      </div>
-
     </div>
   );
 }

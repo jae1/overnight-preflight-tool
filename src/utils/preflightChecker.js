@@ -85,38 +85,12 @@ export async function runPreflightChecks(file, pdfjsDoc) {
     };
   }
 
-  // 3. Scan all indirect objects for global checks (Fonts, Overprint, Transparency, Spot Colors)
+  // 3. Scan all indirect objects for global checks (Overprint, Transparency)
   const indirectObjects = pdfDoc.context.enumerateIndirectObjects();
   for (const [, obj] of indirectObjects) {
     if (!(obj instanceof PDFDict)) continue;
 
     const type = obj.get(PDFName.of('Type'));
-
-    // Check Fonts
-    if (type === PDFName.of('Font')) {
-      const subtype = obj.get(PDFName.of('Subtype'));
-      const fontName = obj.get(PDFName.of('BaseFont'))?.toString() || 'Unnamed Font';
-      
-      // Type3 fonts are vector-defined inside the PDF itself and are self-embedded
-      if (subtype !== PDFName.of('Type3')) {
-        const fontDescriptor = lookup(obj.get(PDFName.of('FontDescriptor')));
-        let isEmbedded = false;
-        
-        if (fontDescriptor instanceof PDFDict) {
-          if (
-            fontDescriptor.has(PDFName.of('FontFile')) ||
-            fontDescriptor.has(PDFName.of('FontFile2')) ||
-            fontDescriptor.has(PDFName.of('FontFile3'))
-          ) {
-            isEmbedded = true;
-          }
-        }
-        
-        if (!isEmbedded) {
-          nonEmbeddedFonts.add(fontName.replace('/', ''));
-        }
-      }
-    }
 
     // Check Overprint
     if (type === PDFName.of('ExtGState')) {
@@ -138,19 +112,45 @@ export async function runPreflightChecks(file, pdfjsDoc) {
         hasTransparency = true;
       }
     }
-
-    // Check Spot Colors (Separation and DeviceN)
-    if (type === PDFName.of('ColorSpace') || obj.has(PDFName.of('ColorSpace'))) {
-      // Color space can be defined inside dictionaries or arrays
-    }
   }
 
-  // Scan resource dictionaries of all pages specifically for ColorSpace and Images
+  // Scan resource dictionaries of all pages specifically for Fonts, ColorSpace and Images
   for (let idx = 0; idx < numPages; idx++) {
     const page = pages[idx];
     const resources = lookup(page.node.get(PDFName.of('Resources')));
     
     if (resources instanceof PDFDict) {
+      // Check Fonts referenced by this page
+      const fonts = lookup(resources.get(PDFName.of('Font')));
+      if (fonts instanceof PDFDict) {
+        for (const key of fonts.keys()) {
+          const fontObj = lookup(fonts.get(key));
+          if (fontObj instanceof PDFDict) {
+            const subtype = fontObj.get(PDFName.of('Subtype'));
+            const fontName = fontObj.get(PDFName.of('BaseFont'))?.toString() || 'Unnamed Font';
+            
+            if (subtype !== PDFName.of('Type3')) {
+              const fontDescriptor = lookup(fontObj.get(PDFName.of('FontDescriptor')));
+              let isEmbedded = false;
+              
+              if (fontDescriptor instanceof PDFDict) {
+                if (
+                  fontDescriptor.has(PDFName.of('FontFile')) ||
+                  fontDescriptor.has(PDFName.of('FontFile2')) ||
+                  fontDescriptor.has(PDFName.of('FontFile3'))
+                ) {
+                  isEmbedded = true;
+                }
+              }
+              
+              if (!isEmbedded) {
+                nonEmbeddedFonts.add(fontName.replace('/', ''));
+              }
+            }
+          }
+        }
+      }
+
       // Scan ColorSpace for Spot Colors and RGB
       const colorSpaces = lookup(resources.get(PDFName.of('ColorSpace')));
       if (colorSpaces instanceof PDFDict) {
@@ -575,6 +575,11 @@ export async function fixBlankPage(arrayBuffer, pageNum) {
  * @returns {Promise<Uint8Array>} Corrected PDF bytes
  */
 export async function fixRasterizePages(arrayBuffer, pdfjsDoc, pageNums) {
+  console.log('Running UPDATED fixRasterizePages with pageNums:', pageNums);
+  if (!pdfjsDoc) {
+    throw new Error('PDF.js document proxy is missing. Cannot rasterize pages.');
+  }
+
   const pdfDoc = await PDFDocument.load(arrayBuffer);
   const pages = pdfDoc.getPages();
   
@@ -582,66 +587,69 @@ export async function fixRasterizePages(arrayBuffer, pdfjsDoc, pageNums) {
     const idx = pageNum - 1;
     if (idx < 0 || idx >= pages.length) continue;
     
-    const page = pages[idx];
-    const mediaBox = page.getMediaBox();
-    const cropBox = page.getCropBox() || mediaBox;
-    
-    // Render the page at high resolution using PDF.js
-    const pdfjsPage = await pdfjsDoc.getPage(pageNum);
-    
-    // 300 DPI corresponds to 300/72 = 4.167 scale factor
-    const scale = 300 / 72;
-    const viewport = pdfjsPage.getViewport({ scale });
-    
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(viewport.width);
-    canvas.height = Math.round(viewport.height);
-    const ctx = canvas.getContext('2d');
-    
-    // Fill canvas with white background to ensure transparent pages don't render black
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    
-    await pdfjsPage.render({
-      canvasContext: ctx,
-      viewport
-    }).promise;
-    
-    const pngBytes = await new Promise((resolve) => {
-      canvas.toBlob((blob) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(new Uint8Array(reader.result));
-        reader.readAsArrayBuffer(blob);
-      }, 'image/png');
-    });
-    
-    // Embed rasterized image in original PDF
-    const embeddedImg = await pdfDoc.embedPng(pngBytes);
-    
-    // Clear page content streams
-    page.setContentStreams([]);
-    
-    // Draw the image filling the entire cropBox area
-    page.drawImage(embeddedImg, {
-      x: cropBox.x,
-      y: cropBox.y,
-      width: cropBox.width,
-      height: cropBox.height
-    });
-    
-    // Clean resources dictionary to remove reference to old font files
-    const resources = pdfDoc.context.lookup(page.node.get(PDFName.of('Resources')));
-    if (resources instanceof PDFDict) {
-      resources.delete(PDFName.of('Font'));
+    try {
+      const page = pages[idx];
+      const mediaBox = page.getMediaBox();
+      const cropBox = page.getCropBox() || mediaBox;
       
-      // Re-create the XObject resources dictionary containing only our new image
-      const newXObject = pdfDoc.context.obj({
-        [embeddedImg.name]: embeddedImg.ref
+      // Render the page at high resolution using PDF.js
+      const pdfjsPage = await pdfjsDoc.getPage(pageNum);
+      
+      // 300 DPI corresponds to 300/72 = 4.167 scale factor
+      const scale = 300 / 72;
+      const viewport = pdfjsPage.getViewport({ scale });
+      
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(viewport.width);
+      canvas.height = Math.round(viewport.height);
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      
+      if (!ctx) {
+        throw new Error(`Failed to create 2D context for canvas on page ${pageNum}`);
+      }
+      
+      // Fill canvas with white background to ensure transparent pages don't render black
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      
+      await pdfjsPage.render({
+        canvasContext: ctx,
+        viewport
+      }).promise;
+      
+      // Use toDataURL for more reliable image data extraction across environments
+      const pngDataUrl = canvas.toDataURL('image/png');
+      
+      // Embed rasterized image in original PDF
+      const embeddedImg = await pdfDoc.embedPng(pngDataUrl);
+      
+      // 1. Clear page content streams
+      page.node.set(PDFName.of('Contents'), pdfDoc.context.obj([]));
+      
+      // 2. Clean resources dictionary to remove references to old fonts, spot colors, and layers
+      const resourcesRef = page.node.get(PDFName.of('Resources'));
+      const resources = pdfDoc.context.lookup(resourcesRef);
+      if (resources instanceof PDFDict) {
+        resources.delete(PDFName.of('Font'));
+        resources.delete(PDFName.of('ColorSpace'));
+        resources.delete(PDFName.of('XObject'));
+        resources.delete(PDFName.of('Properties')); // Remove layer/OCG info
+        resources.delete(PDFName.of('ExtGState'));  // Remove transparency/overprint states
+      }
+      
+      // 3. Draw the image filling the entire cropBox area
+      // Calling drawImage AFTER clearing XObject will cause pdf-lib to automatically 
+      // re-create the XObject map correctly with the new image.
+      page.drawImage(embeddedImg, {
+        x: cropBox.x,
+        y: cropBox.y,
+        width: cropBox.width,
+        height: cropBox.height
       });
-      resources.set(PDFName.of('XObject'), newXObject);
-      
-      // Remove any spot color spaces specifically associated with this page
-      resources.delete(PDFName.of('ColorSpace'));
+    } catch (pageErr) {
+      console.error(`Error rasterizing page ${pageNum}:`, pageErr);
+      // Continue to next page if one fails, or we could re-throw
+      throw pageErr; 
     }
   }
   
