@@ -21,7 +21,8 @@ import {
   fixOverprint,
   fixHiddenLayers,
   fixBlankPage,
-  fixRasterizePages
+  fixRasterizePages,
+  fixForceTrimCrop
 } from './utils/preflightChecker';
 
 // Text detector logic removed
@@ -708,6 +709,44 @@ export default function App() {
     }
   };
 
+  const handleForceTrimCrop = async () => {
+    if (!artworkFile || artworkType !== 'pdf') return;
+    setIsLoading(true);
+    try {
+      const arrayBuffer = await artworkFile.arrayBuffer();
+      const updatedBytes = await fixForceTrimCrop(arrayBuffer);
+      const correctedBlob = new Blob([updatedBytes], { type: 'application/pdf' });
+      const correctedFile = new File([correctedBlob], artworkFile.name, { type: 'application/pdf' });
+      
+      // Update state with cropped file
+      setArtworkFile(correctedFile);
+      const doc = await loadPDF(correctedFile);
+      setPdfDoc(doc);
+      
+      // Re-run preflight scan
+      setIsScanning(true);
+      try {
+        const results = await runPreflightChecks(correctedFile, doc);
+        setPreflightResults(results);
+      } catch (scanErr) {
+        console.error('Error re-scanning after trim crop:', scanErr);
+      } finally {
+        setIsScanning(false);
+      }
+
+      // Automatically enable mirror bleed since that's the intended workflow
+      setBleedEnabled(true);
+      setSourceHasBleed(false);
+      
+      alert('재단선(TrimBox) 기준으로 크롭되었습니다. 이제 정사이즈 외곽에 미러 도련이 적용됩니다.');
+    } catch (error) {
+      console.error('Error forcing trim crop:', error);
+      alert(`크롭 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Universal Export Handler (Handles both Stamper and Preflight-only exports)
   const handleUniversalExport = async () => {
     if (!artworkFile || !artworkCanvas) return;
@@ -1004,6 +1043,7 @@ export default function App() {
                   onScaleChange={setBugScale}
                   onShowSafeLineToggle={() => setShowSafeLine(!showSafeLine)}
                   onMultiPageOptionsChange={setMultiPageOptions}
+                  onForceTrimCrop={handleForceTrimCrop}
                   isExporting={isExporting}
                 />
               ) : (

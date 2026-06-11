@@ -20,7 +20,8 @@ export default function ControlPanel({
   onColorSelect,
   onScaleChange,
   onShowSafeLineToggle,
-  onMultiPageOptionsChange
+  onMultiPageOptionsChange,
+  onForceTrimCrop
 }) {
 
   const getBugInchDimensions = () => {
@@ -214,6 +215,21 @@ export default function ControlPanel({
             />
             <span className="slider-switch" />
           </label>
+        </div>
+
+        {/* Advanced: Crop to TrimBox Fix */}
+        <div style={{ marginTop: '8px' }}>
+          <button
+            className="btn btn-secondary"
+            style={{ width: '100%', fontSize: '12px', padding: '8px', borderStyle: 'dashed' }}
+            onClick={onForceTrimCrop}
+            title="파일에 크랍마크가 포함된 경우, 실제 인쇄 영역(TrimBox)만 남기고 잘라냅니다."
+          >
+            ✂️ 재단선(TrimBox) 기준으로 자르기
+          </button>
+          <p style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '4px', lineHeight: '1.4' }}>
+            * 크랍마크는 있지만 블리드가 없는 파일에서 사용하세요. 자른 후 미러 블리드가 자동 적용됩니다.
+          </p>
         </div>
 
         {/* Safe Margin Guide Line Toggle */}
