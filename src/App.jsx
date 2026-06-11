@@ -21,8 +21,7 @@ import {
   fixOverprint,
   fixHiddenLayers,
   fixBlankPage,
-  fixRasterizePages,
-  fixForceTrimCrop
+  fixRasterizePages
 } from './utils/preflightChecker';
 
 // Text detector logic removed
@@ -102,6 +101,7 @@ export default function App() {
 
   // Bleed settings
   const [bleedEnabled, setBleedEnabled] = useState(false);
+  const [trimCropEnabled, setTrimCropEnabled] = useState(false); // New non-destructive crop toggle
   const [sourceHasBleed, setSourceHasBleed] = useState(true); // Default true for PDFs (0.125" / 9pt bleed included)
   const [originalImage, setOriginalImage] = useState(null); // Keeps the original Image element for reactive image bleed redraws
 
@@ -359,19 +359,19 @@ export default function App() {
 
 
   // Render a specific PDF page to canvas (called reactively)
-  const renderPage = async (doc, pageNum, bleedAmount = 0) => {
+  const renderPage = async (doc, pageNum, bleedAmount = 0, trimCrop = false, boxInfo = null) => {
     try {
       const page = await doc.getPage(pageNum);
       const canvas = document.createElement('canvas');
       
-      // Render to canvas with bleed parameters (0.125" = 9.0pt)
-      await renderPDFPageToCanvas(page, canvas, canvasScale, bleedAmount);
+      // Render to canvas with bleed parameters (0.125" = 9.0pt) and optional trim crop
+      await renderPDFPageToCanvas(page, canvas, canvasScale, bleedAmount, trimCrop, boxInfo);
       setArtworkCanvas(canvas);
 
       // Extract geometry metadata if we have the file
-      if (artworkFile) {
-        const boxInfo = await getPDFBoxInfo(artworkFile, pageNum);
-        setPdfBoxInfo(boxInfo);
+      if (artworkFile && !boxInfo) {
+        const info = await getPDFBoxInfo(artworkFile, pageNum);
+        setPdfBoxInfo(info);
       }
       
       // Extract dominant colors from the page background
@@ -411,7 +411,7 @@ export default function App() {
     setExtractedColors(colors);
   };
 
-  // Reactive Effect: Re-renders the artwork canvas when page, doc, bleed, or image changes
+  // Reactive Effect: Re-renders the artwork canvas when page, doc, bleed, image, or trimCrop changes
   useEffect(() => {
     if (!artworkFile) return;
     
@@ -421,7 +421,7 @@ export default function App() {
         const bleedAmount = bleedEnabled ? 9.0 : 0; // 0.125" = 9.0pt
         
         if (artworkType === 'pdf' && pdfDoc) {
-          await renderPage(pdfDoc, currentPage, bleedAmount);
+          await renderPage(pdfDoc, currentPage, bleedAmount, trimCropEnabled, pdfBoxInfo);
         } else if (artworkType === 'image' && originalImage) {
           renderImageCanvas(originalImage, bleedEnabled);
         }
@@ -434,7 +434,7 @@ export default function App() {
     
     updateArtworkRender();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bleedEnabled, currentPage, originalImage, pdfDoc]);
+  }, [bleedEnabled, trimCropEnabled, currentPage, originalImage, pdfDoc, pdfBoxInfo]);
 
   // 2. Handle Union Bug File Upload
   const handleBugSelect = async (file) => {
@@ -748,42 +748,6 @@ export default function App() {
     }
   };
 
-  const handleForceTrimCrop = async () => {
-    if (!artworkFile || artworkType !== 'pdf') return;
-    setIsLoading(true);
-    try {
-      const arrayBuffer = await artworkFile.arrayBuffer();
-      const updatedBytes = await fixForceTrimCrop(arrayBuffer);
-      const correctedBlob = new Blob([updatedBytes], { type: 'application/pdf' });
-      const correctedFile = new File([correctedBlob], artworkFile.name, { type: 'application/pdf' });
-      
-      // Update state with cropped file
-      setArtworkFile(correctedFile);
-      const doc = await loadPDF(correctedFile);
-      setPdfDoc(doc);
-      
-      // Re-run preflight scan
-      setIsScanning(true);
-      try {
-        const results = await runPreflightChecks(correctedFile, doc);
-        setPreflightResults(results);
-      } catch (scanErr) {
-        console.error('Error re-scanning after trim crop:', scanErr);
-      } finally {
-        setIsScanning(false);
-      }
-
-      // Automatically enable mirror bleed since that's the intended workflow
-      setBleedEnabled(true);
-      setSourceHasBleed(false);
-    } catch (error) {
-      console.error('Error forcing trim crop:', error);
-      alert(`크롭 중 오류가 발생했습니다: ${error.message || '알 수 없는 오류'}`);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   // Universal Export Handler (Handles both Stamper and Preflight-only exports)
   const handleUniversalExport = async () => {
     if (!artworkFile || !artworkCanvas) return;
@@ -826,7 +790,8 @@ export default function App() {
           bleedAmount, // Pass bleed amount (in points)
           bugEnabled,  // Pass toggle state
           finalPositions,
-          finalSizes
+          finalSizes,
+          trimCropEnabled // Pass non-destructive toggle
         );
         
         // Trigger browser download
@@ -1070,6 +1035,8 @@ export default function App() {
                   showSafeLine={showSafeLine}
                   bleedEnabled={bleedEnabled}
                   onBleedToggle={() => setBleedEnabled(!bleedEnabled)}
+                  trimCropEnabled={trimCropEnabled}
+                  onTrimCropToggle={() => setTrimCropEnabled(!trimCropEnabled)}
                   bugEnabled={bugEnabled}
                   onBugEnabledToggle={() => setBugEnabled(!bugEnabled)}
                   onQuickAlign={handleQuickAlign}
@@ -1080,7 +1047,6 @@ export default function App() {
                   onScaleChange={setBugScale}
                   onShowSafeLineToggle={() => setShowSafeLine(!showSafeLine)}
                   onMultiPageOptionsChange={setMultiPageOptions}
-                  onForceTrimCrop={handleForceTrimCrop}
                   onReset={handleResetArtwork}
                   isExporting={isExporting}
                 />

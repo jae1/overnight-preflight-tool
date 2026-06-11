@@ -566,35 +566,6 @@ export async function fixBlankPage(arrayBuffer, pageNum) {
 }
 
 /**
- * Forces the CropBox of all pages to match their respective TrimBox.
- * Useful for removing crop marks and external margins when no bleed is actually provided.
- * 
- * @param {ArrayBuffer} arrayBuffer - The PDF file as arrayBuffer
- * @returns {Promise<Uint8Array>} Corrected PDF bytes
- */
-export async function fixForceTrimCrop(arrayBuffer) {
-  const pdfDoc = await PDFDocument.load(arrayBuffer);
-  const pages = pdfDoc.getPages();
-  let foundTrimBox = false;
-
-  pages.forEach(page => {
-    // Get the TrimBox (actual intended print area)
-    const trimBox = page.getTrimBox();
-    if (trimBox) {
-      foundTrimBox = true;
-      // Force CropBox to match TrimBox, effectively hiding anything outside the print area
-      page.setCropBox(trimBox.x, trimBox.y, trimBox.width, trimBox.height);
-    }
-  });
-
-  if (!foundTrimBox) {
-    throw new Error('문서에서 재단선(TrimBox) 정보를 찾을 수 없습니다.');
-  }
-
-  return await pdfDoc.save();
-}
-
-/**
  * Rasterizes specified pages at 300 DPI to resolve font embedding and spot color issues.
  * This function will be called with PDF.js instances to render target pages, then pdf-lib to re-embed.
  * 

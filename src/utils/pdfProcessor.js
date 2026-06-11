@@ -212,41 +212,83 @@ export function drawMirrorBleed(ctx, orig, W, H, B) {
  * @param {HTMLCanvasElement} canvas - The destination canvas
  * @param {number} scale - Render scale (default 1.5 for high quality)
  * @param {number} bleedAmount - Bleed amount in PDF points (default 0)
+ * @param {boolean} trimCropEnabled - If true, crops the render to the TrimBox
+ * @param {Object} pdfBoxInfo - Box dimensions for the page
  * @returns {Promise<{width: number, height: number}>}
  */
-export async function renderPDFPageToCanvas(page, canvas, scale = 1.5, bleedAmount = 0) {
+export async function renderPDFPageToCanvas(page, canvas, scale = 1.5, bleedAmount = 0, trimCropEnabled = false, pdfBoxInfo = null) {
   const viewport = page.getViewport({ scale });
   
-  const originalWidth = viewport.width;
-  const originalHeight = viewport.height;
+  let originalWidth = viewport.width;
+  let originalHeight = viewport.height;
+  let offsetX = 0;
+  let offsetY = 0;
+
+  // If trim cropping is enabled, calculate the offset from CropBox to TrimBox
+  if (trimCropEnabled && pdfBoxInfo && pdfBoxInfo.trimBox && pdfBoxInfo.cropBox) {
+    const { trimBox, cropBox } = pdfBoxInfo;
+    originalWidth = trimBox.width * scale;
+    originalHeight = trimBox.height * scale;
+    offsetX = (trimBox.x - cropBox.x) * scale;
+    // PDF coordinates are Y-up, canvas is Y-down. 
+    // CropBox height - (TrimBox Y - CropBox Y + TrimBox height)
+    offsetY = (cropBox.height - (trimBox.y - cropBox.y + trimBox.height)) * scale;
+  }
+
   const bleedPx = Math.round(bleedAmount * scale);
   
-  // Set canvas size (original + bleed on all 4 edges)
+  // Set canvas size (calculated base + bleed on all 4 edges)
   canvas.width = Math.round(originalWidth + (bleedPx * 2));
   canvas.height = Math.round(originalHeight + (bleedPx * 2));
   
-  const canvasContext = canvas.getContext('2d');
+  const canvasContext = canvas.getContext('2d', { willReadFrequently: true });
   
+  // Helper to render the specific portion of the PDF page
+  const renderToCtx = async (targetCtx, targetW, targetH) => {
+    // Fill with white background
+    targetCtx.fillStyle = '#ffffff';
+    targetCtx.fillRect(0, 0, targetW, targetH);
+
+    if (trimCropEnabled && pdfBoxInfo) {
+      // Use a temporary canvas to render the full page, then draw the cropped portion
+      const fullCanvas = document.createElement('canvas');
+      fullCanvas.width = Math.round(viewport.width);
+      fullCanvas.height = Math.round(viewport.height);
+      const fullCtx = fullCanvas.getContext('2d');
+      
+      await page.render({
+        canvasContext: fullCtx,
+        viewport
+      }).promise;
+
+      targetCtx.drawImage(
+        fullCanvas,
+        Math.round(offsetX), Math.round(offsetY), Math.round(originalWidth), Math.round(originalHeight), // Source (TrimBox in full page)
+        0, 0, Math.round(originalWidth), Math.round(originalHeight) // Destination (at origin of target)
+      );
+    } else {
+      // Direct render
+      await page.render({
+        canvasContext: targetCtx,
+        viewport
+      }).promise;
+    }
+  };
+
   if (bleedPx > 0) {
-    // Render the original page to an offscreen temporary canvas
+    // Render the (optionally cropped) page to an offscreen temporary canvas
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = Math.round(originalWidth);
     tempCanvas.height = Math.round(originalHeight);
     const tempCtx = tempCanvas.getContext('2d');
     
-    await page.render({
-      canvasContext: tempCtx,
-      viewport
-    }).promise;
+    await renderToCtx(tempCtx, tempCanvas.width, tempCanvas.height);
     
     // Draw the centered page with mirrored bleed margins
     drawMirrorBleed(canvasContext, tempCanvas, originalWidth, originalHeight, bleedPx);
   } else {
-    // Standard direct render without bleed
-    await page.render({
-      canvasContext: canvasContext,
-      viewport
-    }).promise;
+    // Standard direct render (with optional cropping)
+    await renderToCtx(canvasContext, canvas.width, canvas.height);
   }
   
   return {
@@ -368,7 +410,8 @@ export async function stitchBugToPDF(
   bleedAmount = 0,
   bugEnabled = true,
   pagePositions = {},
-  pageSizes = {}
+  pageSizes = {},
+  trimCropEnabled = false
 ) {
   const originalBytes = await originalPDFFile.arrayBuffer();
   const pdfDoc = await PDFDocument.load(originalBytes);
@@ -405,15 +448,20 @@ export async function stitchBugToPDF(
         
         const page = pages[pageNum - 1];
         const cropBox = page.getCropBox();
-        const cropX = cropBox.x;
-        const cropY = cropBox.y;
-        const cropH = cropBox.height;
+        const trimBox = page.getTrimBox() || cropBox;
+
+        // If trimCropEnabled is true, we act as if the TrimBox IS the entire page area
+        const activeBaseBox = trimCropEnabled ? trimBox : cropBox;
+
+        const cropX = activeBaseBox.x;
+        const cropY = activeBaseBox.y;
+        const cropH = activeBaseBox.height;
         
         // Retrieve page-specific position and dimensions or fallback to defaults
         const activePos = pagePositions[pageNum] || position;
         const activeSize = pageSizes[pageNum] || bugSize;
         
-        // Translate canvas pixels to PDF points, shifting by the CropBox origin to align with viewport
+        // Translate canvas pixels to PDF points, shifting by the active box origin to align with viewport
         const pdfX = cropX + (activePos.left / canvasScale);
         const pdfY = cropY + cropH - ((activePos.top + activeSize.height) / canvasScale);
         const pdfW = activeSize.width / canvasScale;
@@ -446,12 +494,15 @@ export async function stitchBugToPDF(
     const pageNum = i + 1;
     const originalPage = pages[i];
     
-    // Base layout coordinates and page dimensions on the CropBox to ensure
-    // 100% exact alignment with PDF.js viewer (which displays CropBox visible area).
+    // Base layout coordinates and page dimensions on the CropBox or TrimBox
     const cropBox = originalPage.getCropBox();
     const trimBox = originalPage.getTrimBox() || cropBox;
-    const origWidth = cropBox.width;
-    const origHeight = cropBox.height;
+    
+    // If trimCropEnabled is true, we act as if the TrimBox IS the entire page area
+    const activeBaseBox = trimCropEnabled ? trimBox : cropBox;
+    
+    const origWidth = activeBaseBox.width;
+    const origHeight = activeBaseBox.height;
     
     // Expanded canvas dimensions
     const newWidth = origWidth + (bleedAmount * 2);
@@ -465,21 +516,39 @@ export async function stitchBugToPDF(
     const viewport = pdfjsPage.getViewport({ scale: renderScale });
     
     const highResCanvas = document.createElement('canvas');
-    highResCanvas.width = Math.round(viewport.width + (bleedAmount * 2 * renderScale));
-    highResCanvas.height = Math.round(viewport.height + (bleedAmount * 2 * renderScale));
+    highResCanvas.width = Math.round((origWidth + (bleedAmount * 2)) * renderScale);
+    highResCanvas.height = Math.round((origHeight + (bleedAmount * 2)) * renderScale);
     const hrCtx = highResCanvas.getContext('2d');
     
     // Render original vector page to a temp canvas
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = Math.round(viewport.width);
-    tempCanvas.height = Math.round(viewport.height);
+    const tempCanvasFull = document.createElement('canvas');
+    tempCanvasFull.width = Math.round(viewport.width);
+    tempCanvasFull.height = Math.round(viewport.height);
     await pdfjsPage.render({
-      canvasContext: tempCanvas.getContext('2d'),
+      canvasContext: tempCanvasFull.getContext('2d'),
       viewport
     }).promise;
+
+    // If cropped, we need just the TrimBox portion from the full render
+    const tempCanvasBase = document.createElement('canvas');
+    tempCanvasBase.width = Math.round(origWidth * renderScale);
+    tempCanvasBase.height = Math.round(origHeight * renderScale);
+    const tcbCtx = tempCanvasBase.getContext('2d');
+    
+    if (trimCropEnabled) {
+      const offsetX = (trimBox.x - cropBox.x) * renderScale;
+      const offsetY = (cropBox.height - (trimBox.y - cropBox.y + trimBox.height)) * renderScale;
+      tcbCtx.drawImage(
+        tempCanvasFull,
+        Math.round(offsetX), Math.round(offsetY), Math.round(origWidth * renderScale), Math.round(origHeight * renderScale),
+        0, 0, Math.round(origWidth * renderScale), Math.round(origHeight * renderScale)
+      );
+    } else {
+      tcbCtx.drawImage(tempCanvasFull, 0, 0);
+    }
     
     // Apply mirror bleed algorithm at high resolution (background layers only)
-    drawMirrorBleed(hrCtx, tempCanvas, viewport.width, viewport.height, bleedAmount * renderScale);
+    drawMirrorBleed(hrCtx, tempCanvasBase, origWidth * renderScale, origHeight * renderScale, bleedAmount * renderScale);
     
     // Compress high-res canvas to PNG and embed in output PDF page
     const pageDataUrl = highResCanvas.toDataURL('image/png');
@@ -497,9 +566,9 @@ export async function stitchBugToPDF(
     newPage.setCropBox(0, 0, newWidth, newHeight);
     newPage.setBleedBox(0, 0, newWidth, newHeight);
     
-    // Position the TrimBox precisely, accounting for the bleed offset and original TrimBox-to-CropBox translation
-    const newTrimX = bleedAmount + (trimBox.x - cropBox.x);
-    const newTrimY = bleedAmount + (trimBox.y - cropBox.y);
+    // Position the TrimBox precisely, accounting for the bleed offset
+    const newTrimX = trimCropEnabled ? bleedAmount : (bleedAmount + (trimBox.x - cropBox.x));
+    const newTrimY = trimCropEnabled ? bleedAmount : (bleedAmount + (trimBox.y - cropBox.y));
     newPage.setTrimBox(newTrimX, newTrimY, trimBox.width, trimBox.height);
 
     // Overlay the vector Union Bug if enabled and targeted for this page

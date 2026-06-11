@@ -21,7 +21,8 @@ export default function ControlPanel({
   onScaleChange,
   onShowSafeLineToggle,
   onMultiPageOptionsChange,
-  onForceTrimCrop,
+  trimCropEnabled,
+  onTrimCropToggle,
   onReset
 }) {
 
@@ -228,19 +229,20 @@ export default function ControlPanel({
           </label>
         </div>
 
-        {/* Advanced: Crop to TrimBox Fix */}
-        <div style={{ marginTop: '8px' }}>
-          <button
-            className="btn btn-secondary"
-            style={{ width: '100%', fontSize: '12px', padding: '8px', borderStyle: 'dashed' }}
-            onClick={onForceTrimCrop}
-            title="파일에 크랍마크가 포함된 경우, 실제 인쇄 영역만 남기고 잘라냅니다."
-          >
-            ✂️ 재단선 기준으로 자르기
-          </button>
-          <p style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '4px', lineHeight: '1.4' }}>
-            * 크랍마크는 있지만 블리드가 없는 파일에서 사용하세요. 자른 후 미러 블리드가 자동 적용됩니다.
-          </p>
+        {/* Advanced: Crop to TrimBox Toggle */}
+        <div className="toggle-item" style={{ borderLeft: trimCropEnabled ? '3px solid #ff4d4d' : '1px solid var(--border-color)' }}>
+          <div className="toggle-info">
+            <h5 style={{ color: trimCropEnabled ? 'var(--text-primary)' : 'var(--text-secondary)' }}>재단선 기준으로 자르기</h5>
+            <p style={{ fontSize: '10px', color: 'var(--text-secondary)', marginTop: '2px' }}>크랍마크 제거 및 정사이즈 크롭</p>
+          </div>
+          <label className="switch">
+            <input
+              type="checkbox"
+              checked={trimCropEnabled}
+              onChange={onTrimCropToggle}
+            />
+            <span className="slider-switch" />
+          </label>
         </div>
 
         {/* Safe Margin Guide Line Toggle */}
