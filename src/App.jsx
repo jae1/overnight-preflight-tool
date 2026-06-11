@@ -865,7 +865,7 @@ export default function App() {
         <div className="logo-section" onClick={handleClearArtwork} style={{ cursor: 'pointer' }} title="홈페이지로 이동">
           <Shield size={24} className="logo-icon" />
           <h1>Overnight Preflight Tool</h1>
-          <span className="logo-badge">v1.0.0</span>
+          <span className="logo-badge">v1.3.0</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
           {/* Theme switcher */}
