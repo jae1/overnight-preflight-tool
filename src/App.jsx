@@ -924,28 +924,44 @@ export default function App() {
           <>
             {/* 1. Canvas Area */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
-              {/* PDF Geometry Specification Dashboard */}
+              {/* PDF Geometry Specification Dashboard (Live Updates) */}
               {pdfBoxInfo && (
                 <div className="pdf-geometry-info-card">
                   <div className="info-grid">
-                    <div className="info-item">
-                      <span className="info-label">Crop Box</span>
-                      <span className="info-val" title={formatPtToPhysical(pdfBoxInfo.cropBox.width, pdfBoxInfo.cropBox.height)}>
-                        {formatPtToPhysical(pdfBoxInfo.cropBox.width, pdfBoxInfo.cropBox.height)}
-                      </span>
-                    </div>
-                    <div className="info-item" style={{ borderLeft: '3px solid #0055ff' }}>
-                      <span className="info-label" style={{ color: '#0055ff' }}>Trim Box</span>
-                      <span className="info-val" style={{ color: '#0055ff', fontWeight: '700' }} title={formatPtToPhysical(pdfBoxInfo.trimBox.width, pdfBoxInfo.trimBox.height)}>
-                        {formatPtToPhysical(pdfBoxInfo.trimBox.width, pdfBoxInfo.trimBox.height)}
-                      </span>
-                    </div>
-                    <div className="info-item" style={{ borderLeft: '3px solid #ff007f' }}>
-                      <span className="info-label" style={{ color: '#ff007f' }}>Bleed Box</span>
-                      <span className="info-val" title={formatPtToPhysical(pdfBoxInfo.bleedBox.width, pdfBoxInfo.bleedBox.height)}>
-                        {formatPtToPhysical(pdfBoxInfo.bleedBox.width, pdfBoxInfo.bleedBox.height)}
-                      </span>
-                    </div>
+                    {(() => {
+                      // Calculate effective dimensions based on current settings
+                      const baseBox = trimCropEnabled ? pdfBoxInfo.trimBox : pdfBoxInfo.cropBox;
+                      const manualInset = manualCropAmount || 0;
+                      const bleedOffset = bleedEnabled ? 9.0 : 0; // 0.125"
+
+                      const finalTrimW = baseBox.width - (manualInset * 2);
+                      const finalTrimH = baseBox.height - (manualInset * 2);
+                      const finalCanvasW = finalTrimW + (bleedOffset * 2);
+                      const finalCanvasH = finalTrimH + (bleedOffset * 2);
+
+                      return (
+                        <>
+                          <div className="info-item">
+                            <span className="info-label">Final Canvas (Crop)</span>
+                            <span className="info-val" title={formatPtToPhysical(finalCanvasW, finalCanvasH)}>
+                              {formatPtToPhysical(finalCanvasW, finalCanvasH)}
+                            </span>
+                          </div>
+                          <div className="info-item" style={{ borderLeft: '3px solid #0055ff' }}>
+                            <span className="info-label" style={{ color: '#0055ff' }}>Final Trim (Size)</span>
+                            <span className="info-val" style={{ color: '#0055ff', fontWeight: '700' }} title={formatPtToPhysical(finalTrimW, finalTrimH)}>
+                              {formatPtToPhysical(finalTrimW, finalTrimH)}
+                            </span>
+                          </div>
+                          <div className="info-item" style={{ borderLeft: '3px solid #ff007f' }}>
+                            <span className="info-label" style={{ color: '#ff007f' }}>Bleed Margin</span>
+                            <span className="info-val">
+                              {bleedEnabled ? '0.125" (Included)' : 'None'}
+                            </span>
+                          </div>
+                        </>
+                      );
+                    })()}
                     <div className="info-item">
                       <span className="info-label">Page</span>
                       <span className="info-val" style={{ fontWeight: '700', color: 'var(--accent)' }}>
